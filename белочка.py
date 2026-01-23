@@ -26,3 +26,6 @@ if q*w>=e:
     print("yes")
 else:
     print("no")
+
+
+#ghbdtn
