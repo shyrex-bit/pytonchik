@@ -1,0 +1,118 @@
+from dataclasses import dataclass
+
+# сущность:
+#     МобильныйТелефон
+# поля:
+#     ИД - целое уникальное число
+#     Марка - строка (макс 10 символов)
+#     Модель - строка (макс 15 символов)
+#     Вес - целое число
+#     Диагональ экрана - дробное число
+#     Ёмкость аккумултора - целое число
+#     Состояние - строка (макс 10 символов)
+#     Цена - целое число
+#     Количество на складе - целое число
+
+
+@dataclass
+class MobilePhone:
+    id: int
+    brand: str
+    model: str
+    weight: int
+    screen_diagonal: float
+    battery: int
+    status: str
+    price: int
+    amount: int
+
+
+GLOBAL_MOBILE_PHONE_ID = 0
+
+# действия пользователя в программе
+
+# 1) искать Мобильные телефоны по:
+#     ИД
+#     Марка
+#     Цена
+#     Состояние
+
+# 2) сортировать Мобильные телефоны по:
+#     ИД
+#     Цена
+#     Диагональ экрана
+#     Ёмкость аккумултора
+#     Вес
+
+
+# 3) добавлять новые мобильные телефоны в список телефонов
+def input_phone_data():
+    print("введите данные телефона")
+
+    brand = input("марку: ")
+    model = input("модель: ")
+    weight = int(input("вес: "))
+    screen_diagonal = float(input("диагональ экрана: "))
+    battery = int(input("ёмкость акумулятора: "))
+    status = input("статус (подержанный, новый): ")
+    price = int(input("цену: "))
+    amount = int(input("количество на складе: "))
+
+    return MobilePhone(
+        0, brand, model, weight, screen_diagonal, battery, status, price, amount
+    )
+
+
+def add_phone_to_list(phones, phone):
+    global GLOBAL_MOBILE_PHONE_ID
+    GLOBAL_MOBILE_PHONE_ID += 1
+
+    phone.id = GLOBAL_MOBILE_PHONE_ID
+
+    phones.append(phone)
+
+
+# 4) удалять мобильные телефоны из списка телефонов
+def find_phone_by_id(phones, id):
+    for phone in phones:
+        if phone.id == id:
+            return phone
+    return None
+# 5) изменить поле "Количество на складе" в сущности мобильный телефон
+
+# 6) изменить всю информацию о мобильном телефоне, кроме поля ИД, предварительно найдя его по ИД
+
+
+# 7) вывести список всех мобильных телефонов
+def print_phones(phones):
+    print(
+        f"{'ИД':<10}{'Марка':<15}{'Модель':<16}{'Вес':<10}{'Диаг(inch)':<15}{'Аккум(мАч)':<15}{'Состояние':<15}{'Цена(руб)':<15}{'В наличии':<15}"
+    )
+
+    for item in phones:
+        print(
+            f"{item.id:<10}{item.brand:<15}{item.model:<16}{item.weight:<10}{item.screen_diagonal:<15.1f}{item.battery:<15}{item.status:<15}{item.price:<15}{item.amount:<15}"
+        )
+
+
+# 8) вывести мобильный телефон по ИД
+
+# 9) сохранить список мобильных телефонов в текстовый файл, в двух вариантах
+#     для удобного чтения человеком
+#     для последующей удобной загрузки компьютером в эту программу (по одному полю на строку)
+
+# 10) загрузить список мобильных телефонов из текстового файла
+
+phones = []
+
+# add_phone_to_list(phones, input_phone_data())
+# add_phone_to_list(phones, input_phone_data())
+
+add_phone_to_list(
+    phones, MobilePhone(1, "brand1", "model1", 10, 3.4, 228, "status1", 123, 10)
+)
+add_phone_to_list(
+    phones, MobilePhone(2, "brand2", "model2", 10, 3, 228, "status2", 123, 10)
+)
+
+print_phones(phones)
