@@ -41,7 +41,7 @@ def find_by_id(i):
             return c
     return None
 
-# 1. поиск по нескольким условиям одновременно
+
 def search_multi():
     print("Оставьте пустым чтобы пропустить условие.")
     ram_min = input("Мин. RAM (ГБ): ").strip()
@@ -62,13 +62,13 @@ def search_multi():
     for r in res:
         print_computer(r)
 
-# 2. сортировка
+
 def sort_by_price(reverse=False):
     computers.sort(key=lambda c: c.price, reverse=reverse)
 def sort_by_ram_plus_ssd(reverse=False):
     computers.sort(key=lambda c: (c.ram + c.ssd), reverse=reverse)
 
-# 3. добавление с проверкой уникальности ИД
+
 def add_computer():
     choose_id = input("Хотите задать ID вручную? (enter - нет / введите ID): ").strip()
     comp = input_computer_data()
@@ -89,7 +89,7 @@ def add_computer():
     print("Добавлено:")
     print_computer(comp)
 
-# 4. удаление: по ID или по номеру в списке
+
 def delete_computer():
     mode = input("Удалить по (1) ID или (2) номеру в списке? (1/2): ").strip()
     if mode == "1":
@@ -112,7 +112,7 @@ def delete_computer():
     else:
         print("Отмена")
 
-# 5. увеличение объёма ОЗУ по ID
+
 def increase_ram():
     try:
         iid = int(input("ID: "))
@@ -126,7 +126,7 @@ def increase_ram():
     else:
         print("Не найдено")
 
-# 6. пометить как распродажа (уменьшить цену на 10%)
+
 def mark_sale():
     try:
         iid = int(input("ID: "))
@@ -140,7 +140,7 @@ def mark_sale():
     else:
         print("Не найдено")
 
-# 7. самый дорогой и самый дешёвый
+
 def show_min_max():
     if not computers:
         print("Список пуст"); return
@@ -151,7 +151,7 @@ def show_min_max():
     print("Самый дешёвый:")
     print_computer(mn)
 
-# 8. видеокарты не слабее заданной — простая проверка по подстроке
+
 def show_gpu_not_weaker():
     key = input("Укажите часть имени видеокарты (например 'rtx', 'rx', 'gtx', '3060'): ").strip().lower()
     if not key:
@@ -164,7 +164,6 @@ def show_gpu_not_weaker():
             print_computer(c)
 
 def main():
-    # примеры
     if not computers:
         computers.append(GameComputer(next_id(), 9000, "Intel i7", "RTX 3060", 512, 16, 8, 150000, 3))
         computers.append(GameComputer(next_id(), 5000, "Intel i5", "GTX 1650", 256, 8, 6, 70000, 2))
@@ -202,3 +201,4 @@ def main():
         else:
             print("Неизвестная команда")
 
+#P.S. как вам? :) Алексей Смыслов лучший преподаватель по Python в мире, я так считаю.
