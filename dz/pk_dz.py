@@ -163,6 +163,24 @@ def show_gpu_not_weaker():
         for c in res:
             print_computer(c)
 
+def save_to_txt_for_human(phones, filename):
+    try:
+        file_out = open(filename, "w", encoding="utf-8")
+        file_out.write(
+            f"{'ИД':<10}{'Марка':<15}{'Модель':<16}{'Вес(гр)':<10}{'Диаг(inch)':<15}{'Аккум(мАч)':<15}{'Состояние':<15}{'Цена(руб)':<15}{'В наличии':<15}\n"
+        )
+
+        for item in phones:
+            file_out.write(
+                f"{item.id:<10}{item.brand:<15}{item.model:<16}{item.weight:<10}{item.screen_diagonal:<15.1f}{item.battery:<15}{str(item.status)+'/5':<15}{item.price:<15}{item.amount:<15}\n"
+            )
+        file_out.close()
+
+        print(f"Телефоны в человекочитаемов виде в файл {filename} успешно сохранены")
+    except:
+        print(f"Ошибка при сохранениии телефонов в файл {filename}")
+
+
 def main():
     if not computers:
         computers.append(GameComputer(next_id(), 9000, "Intel i7", "RTX 3060", 512, 16, 8, 150000, 3))
