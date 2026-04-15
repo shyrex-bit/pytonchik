@@ -109,7 +109,7 @@ def message_text_team_title_handler(message: types.Message, state: StateContext)
     output_text = "Выберите решаемую задачу"
 
     inline_reply_keyboard = telebot.types.InlineKeyboardMarkup()
-
+    
     button_chat_bot_task = telebot.types.InlineKeyboardButton(
         "Чат-бот", callback_data="Чат-бот"
     )
