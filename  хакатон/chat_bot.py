@@ -1,5 +1,4 @@
-# ...existing code... 
-
+import sqlite3
 import telebot
 from telebot import custom_filters, types
 from telebot.states import State, StatesGroup
@@ -7,424 +6,537 @@ from telebot.states.sync.context import StateContext
 from telebot.states.sync.middleware import StateMiddleware
 from telebot.storage import StateMemoryStorage
 
-# Токен (в реальном проекте хранить в переменной окружения)
-TOKEN = "8610851744:AAESwcQaW89k33kOMsiClZS6KJgKItSnP74"
+
+BOT_TOKEN = "8713877873:AAGqd8kse3n25s1_D6oHa5b3VG1jMeKMj7o"
 
 bot = telebot.TeleBot(
-    TOKEN,
+    BOT_TOKEN,
     state_storage=StateMemoryStorage(),
     use_class_middlewares=True,
 )
 
-# --- Простое in-memory хранилище вместо sqlite ---
-USERS = set()   # множество user_id
-TASKS = []      # список записей: dict {user_id, task_name, task_time, task_type}
+DB_NAME = "home_tasks.db"
 
-def add_user(user_id: int):
-    USERS.add(user_id)
 
-def create_task(user_id: int, task_title: str, task_time: str, task_category: str):
-    TASKS.append({
-        "user_id": user_id,
-        "task_name": task_title,
-        "task_time": task_time,
-        "task_type": task_category,
-    })
+class HomeStates(StatesGroup):
+    main_menu_buttons_press = State()
+    choose_category = State()
+    input_task_title = State()
+    input_task_date = State()
+    input_done_task_id = State()
+    input_delete_task_id = State()
 
-def get_user_tasks_list(user_id: int):
-    return [(t["task_name"], t["task_time"]) for t in TASKS if t["user_id"] == user_id]
 
-def get_all_users():
-    # вернуть всех известных пользователей (из USERS)
-    return list(USERS)
+def init_db():
+    connection = sqlite3.connect(DB_NAME)
+    cursor = connection.cursor()
 
-# --- Стейты ---
-class AppStates(StatesGroup):
-    main_menu = State()
-    choose_time = State()
-    admin_password = State()
-    admin_pagination = State()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            category TEXT NOT NULL,
+            title TEXT NOT NULL,
+            date TEXT NOT NULL,
+            is_done INTEGER DEFAULT 0
+        )
+    """)
 
-# --- Клавиатуры ---
-def main_keyboard():
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=False)
-    kb.row("🌿 Растения", "🐾 Питомцы")
-    kb.row("🧹 Уборка", "🛒 Покупки")
-    kb.row("📊 Статистика", "📋 Мои задачи")
-    return kb
+    connection.commit()
+    connection.close()
 
-def build_pagination_kb(prev_enabled: bool, next_enabled: bool):
-    kb = types.InlineKeyboardMarkup()
-    btns = []
-    if prev_enabled:
-        btns.append(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_prev"))
-    if next_enabled:
-        btns.append(types.InlineKeyboardButton("Вперёд ➡️", callback_data="admin_next"))
-    if btns:
-        kb.row(*btns)
-    return kb
 
-# --- Обработчики ---
-@bot.message_handler(commands=["start"])
-def cmd_start(message: types.Message, state: StateContext):
-    add_user(message.from_user.id)
-    # очистить state пользователя и установить main_menu
-    state.delete()
-    state.set(AppStates.main_menu)
-    bot.send_message(
-        message.chat.id,
-        "Добро пожаловать в Home Harmony! Выберите категорию:",
-        reply_markup=main_keyboard(),
+def add_task(user_id, category, title, date):
+    connection = sqlite3.connect(DB_NAME)
+    cursor = connection.cursor()
+
+    cursor.execute(
+        "INSERT INTO tasks (user_id, category, title, date) VALUES (?, ?, ?, ?)",
+        (user_id, category, title, date)
     )
 
-@bot.message_handler(func=lambda m: isinstance(m.text, str) and m.text in ["🌿 Растения", "🐾 Питомцы", "🧹 Уборка", "🛒 Покупки"], state=AppStates.main_menu)
-def category_chosen(message: types.Message, state: StateContext):
-    user_id = message.from_user.id
-    chat_id = message.chat.id
-    text = message.text
-    if text == "🌿 Растения":
-        task_title = "Полив растений"
-    elif text == "🐾 Питомцы":
-        task_title = "Кормление питомцев"
-    elif text == "🧹 Уборка":
-        task_title = "Уборка"
-    else:
-        task_title = "Список покупок"
+    connection.commit()
+    connection.close()
 
-    # сохраняем выбор в state и просим время
-    state.add_data(task_title=task_title, task_category="общая")
-    state.set(AppStates.choose_time)
-    bot.send_message(chat_id, f"Вы выбрали задачу: {task_title}. Когда выполнить? (формат ЧЧ:ММ)")
 
-@bot.message_handler(state=AppStates.choose_time)
-def handle_time(message: types.Message, state: StateContext):
-    user_id = message.from_user.id
-    chat_id = message.chat.id
-    task_time = (message.text or "").strip()
-    if len(task_time) != 5 or task_time[2] != ":" or not task_time[:2].isdigit() or not task_time[3:].isdigit():
-        bot.send_message(chat_id, "Неверный формат времени. Введите в формате ЧЧ:ММ, например 08:30.")
+def get_tasks(user_id):
+    connection = sqlite3.connect(DB_NAME)
+    cursor = connection.cursor()
+
+    cursor.execute(
+        "SELECT id, category, title, date, is_done FROM tasks WHERE user_id = ?",
+        (user_id,)
+    )
+
+    tasks = cursor.fetchall()
+    connection.close()
+    return tasks
+
+
+def get_active_tasks(user_id):
+    connection = sqlite3.connect(DB_NAME)
+    cursor = connection.cursor()
+
+    cursor.execute(
+        "SELECT id, category, title, date FROM tasks WHERE user_id = ? AND is_done = 0",
+        (user_id,)
+    )
+
+    tasks = cursor.fetchall()
+    connection.close()
+    return tasks
+
+
+def mark_task_done(user_id, task_id):
+    connection = sqlite3.connect(DB_NAME)
+    cursor = connection.cursor()
+
+    cursor.execute(
+        "UPDATE tasks SET is_done = 1 WHERE user_id = ? AND id = ?",
+        (user_id, task_id)
+    )
+
+    connection.commit()
+    changed_rows = cursor.rowcount
+    connection.close()
+
+    return changed_rows > 0
+
+
+def delete_task(user_id, task_id):
+    connection = sqlite3.connect(DB_NAME)
+    cursor = connection.cursor()
+
+    cursor.execute(
+        "DELETE FROM tasks WHERE user_id = ? AND id = ?",
+        (user_id, task_id)
+    )
+
+    connection.commit()
+    changed_rows = cursor.rowcount
+    connection.close()
+
+    return changed_rows > 0
+
+
+def build_main_menu_keyboard():
+    inline_keyboard = telebot.types.InlineKeyboardMarkup()
+
+    button_add = telebot.types.InlineKeyboardButton(
+        "➕ Добавить задачу", callback_data="button_add_task"
+    )
+    button_tasks = telebot.types.InlineKeyboardButton(
+        "📋 Мои задачи", callback_data="button_show_tasks"
+    )
+    button_done = telebot.types.InlineKeyboardButton(
+        "✅ Отметить выполненной", callback_data="button_done_task"
+    )
+    button_delete = telebot.types.InlineKeyboardButton(
+        "🗑 Удалить задачу", callback_data="button_delete_task"
+    )
+    button_help = telebot.types.InlineKeyboardButton(
+        "ℹ️ Помощь", callback_data="button_help"
+    )
+
+    inline_keyboard.add(button_add)
+    inline_keyboard.add(button_tasks)
+    inline_keyboard.add(button_done)
+    inline_keyboard.add(button_delete)
+    inline_keyboard.add(button_help)
+
+    return inline_keyboard
+
+
+def build_categories_keyboard():
+    inline_keyboard = telebot.types.InlineKeyboardMarkup()
+
+    button_cleaning = telebot.types.InlineKeyboardButton(
+        "🧹 Уборка", callback_data="🧹 Уборка"
+    )
+    button_shopping = telebot.types.InlineKeyboardButton(
+        "🛒 Покупки", callback_data="🛒 Покупки"
+    )
+    button_plants = telebot.types.InlineKeyboardButton(
+        "🌱 Растения", callback_data="🌱 Растения"
+    )
+    button_cooking = telebot.types.InlineKeyboardButton(
+        "🍳 Готовка", callback_data="🍳 Готовка"
+    )
+    button_pets = telebot.types.InlineKeyboardButton(
+        "🐾 Питомцы", callback_data="🐾 Питомцы"
+    )
+    button_other = telebot.types.InlineKeyboardButton(
+        "📌 Другое", callback_data="📌 Другое"
+    )
+
+    inline_keyboard.add(button_cleaning)
+    inline_keyboard.add(button_shopping)
+    inline_keyboard.add(button_plants)
+    inline_keyboard.add(button_cooking)
+    inline_keyboard.add(button_pets)
+    inline_keyboard.add(button_other)
+
+    return inline_keyboard
+
+
+def send_main_menu(chat_id):
+    output_text = (
+        "Привет! Я бот для домашней рутины 🏠\n"
+        "Я помогу тебе не забывать про уборку, покупки, растения, готовку и питомцев.\n\n"
+        "Выбери нужное действие:"
+    )
+
+    bot.send_message(chat_id, output_text, reply_markup=build_main_menu_keyboard())
+
+
+def show_tasks(message):
+    tasks = get_tasks(message.from_user.id)
+
+    if len(tasks) == 0:
+        bot.send_message(
+            message.chat.id,
+            "Пока задач нет. Добавь первую задачу 🏠",
+            reply_markup=build_main_menu_keyboard()
+        )
         return
-    hh = int(task_time[:2])
-    mm = int(task_time[3:])
-    if not (0 <= hh <= 23 and 0 <= mm <= 59):
-        bot.send_message(chat_id, "Неверное время. Введите корректное время ЧЧ:ММ.")
-        return
 
-    # получить временные данные и сохранить задачу
-    with state.data() as data:
-        task_title = data.get("task_title", "Задача")
-        task_category = data.get("task_category", "общая")
+    output_text = "Твои задачи:\n\n"
 
-    create_task(user_id, task_title, task_time, task_category)
+    for task in tasks:
+        task_id, category, title, date, is_done = task
+        status = "✅" if is_done == 1 else "❌"
+        output_text += f"{task_id}. [{category}] {title} — {date} {status}\n"
+
+    bot.send_message(
+        message.chat.id,
+        output_text,
+        reply_markup=build_main_menu_keyboard()
+    )
+
+
+@bot.message_handler(commands=["start"])
+def command_start_handler(message: types.Message, state: StateContext):
     state.delete()
-    bot.send_message(chat_id, f"Задача '{task_title}' добавлена на {task_time}.", reply_markup=main_keyboard())
+    state.set(HomeStates.main_menu_buttons_press)
+    send_main_menu(message.chat.id)
 
-@bot.message_handler(func=lambda m: isinstance(m.text, str) and m.text == "📋 Мои задачи", state=AppStates.main_menu)
-def my_tasks(message: types.Message, state: StateContext):
-    user_id = message.from_user.id
-    chat_id = message.chat.id
-    tasks = get_user_tasks_list(user_id)
-    if not tasks:
-        bot.send_message(chat_id, "У вас пока нет задач.")
-        return
-    lines = [f"- {t[0]} в {t[1]}" for t in tasks]
-    bot.send_message(chat_id, "Ваши задачи:\n" + "\n".join(lines))
 
-@bot.message_handler(func=lambda m: isinstance(m.text, str) and m.text == "📊 Статистика", state=AppStates.main_menu)
-def stats_handler(message: types.Message, state: StateContext):
-    # админская команда: запрашиваем пароль
-    state.set(AppStates.admin_password)
-    bot.send_message(message.chat.id, "Введите пароль администратора для просмотра статистики:")
+@bot.message_handler(commands=["help"])
+def command_help_handler(message: types.Message, state: StateContext):
+    output_text = (
+        "Я умею:\n"
+        "➕ добавлять домашние задачи\n"
+        "📋 показывать список задач\n"
+        "✅ отмечать задачи выполненными\n"
+        "🗑 удалять задачи\n\n"
+        "Команды:\n"
+        "/start — главное меню\n"
+        "/add — добавить задачу\n"
+        "/tasks — показать задачи\n"
+        "/done — отметить выполненной\n"
+        "/delete — удалить задачу\n"
+        "/cancel — отменить действие"
+    )
 
-@bot.message_handler(state=AppStates.admin_password)
-def check_admin_password(message: types.Message, state: StateContext):
-    pwd = (message.text or "").strip()
-    if pwd != "12345":
-        bot.send_message(message.chat.id, "Неверный пароль. Введите ещё раз или вернитесь в меню /start")
-        return
+    bot.send_message(message.chat.id, output_text, reply_markup=build_main_menu_keyboard())
 
-    users = get_all_users()
-    if not users:
-        bot.send_message(message.chat.id, "Пользователей пока нет. Вернитесь в меню /start")
-        state.delete()
-        return
 
-    # формируем страницы простым способом из TASKS
-    lines = []
-    rows = sorted(TASKS, key=lambda r: r["user_id"])
-    for r in rows:
-        lines.append(f"user {r['user_id']} — {r['task_name']} @ {r['task_time']}")
+@bot.message_handler(commands=["add"])
+def command_add_handler(message: types.Message, state: StateContext):
+    output_text = "Выбери категорию задачи:"
 
-    # простая постраничка по 8 строк
-    page_size = 8
-    pages = [lines[i : i + page_size] for i in range(0, len(lines), page_size)]
-    if not pages:
-        bot.send_message(message.chat.id, "Записей нет.")
-        state.delete()
-        return
+    state.set(HomeStates.choose_category)
 
-    state.add_data(admin_pages=pages, admin_page_index=0)
-    state.set(AppStates.admin_pagination)
+    bot.send_message(
+        message.chat.id,
+        output_text,
+        reply_markup=build_categories_keyboard()
+    )
 
-    page_text = "\n".join(pages[0]) + "\n\nВернитесь в меню: /start"
-    kb = build_pagination_kb(prev_enabled=False, next_enabled=(len(pages) > 1))
-    bot.send_message(message.chat.id, page_text, reply_markup=kb)
 
-@bot.callback_query_handler(state=AppStates.admin_pagination)
-def admin_pagination_cb(call: types.CallbackQuery, state: StateContext):
-    if call.data not in ("admin_prev", "admin_next"):
-        bot.answer_callback_query(call.id)
+@bot.message_handler(commands=["tasks"])
+def command_tasks_handler(message: types.Message):
+    show_tasks(message)
+
+
+@bot.message_handler(commands=["done"])
+def command_done_handler(message: types.Message, state: StateContext):
+    active_tasks = get_active_tasks(message.from_user.id)
+
+    if len(active_tasks) == 0:
+        bot.send_message(
+            message.chat.id,
+            "У тебя нет невыполненных задач ✅",
+            reply_markup=build_main_menu_keyboard()
+        )
         return
 
-    with state.data() as data:
-        pages = data.get("admin_pages", [])
-        idx = data.get("admin_page_index", 0)
+    output_text = "Невыполненные задачи:\n\n"
 
-    if not pages:
-        bot.answer_callback_query(call.id, "Список не найден.")
+    for task in active_tasks:
+        task_id, category, title, date = task
+        output_text += f"{task_id}. [{category}] {title} — {date}\n"
+
+    output_text += "\nВведи номер задачи, которую нужно отметить выполненной."
+
+    state.set(HomeStates.input_done_task_id)
+
+    bot.send_message(message.chat.id, output_text)
+
+
+@bot.message_handler(commands=["delete"])
+def command_delete_handler(message: types.Message, state: StateContext):
+    tasks = get_tasks(message.from_user.id)
+
+    if len(tasks) == 0:
+        bot.send_message(
+            message.chat.id,
+            "У тебя пока нет задач для удаления.",
+            reply_markup=build_main_menu_keyboard()
+        )
         return
 
-    if call.data == "admin_prev" and idx > 0:
-        idx -= 1
-    if call.data == "admin_next" and idx < len(pages) - 1:
-        idx += 1
+    output_text = "Твои задачи:\n\n"
 
-    state.add_data(admin_page_index=idx)
-    page_text = "\n".join(pages[idx]) + "\n\nВернитесь в меню: /start"
-    kb = build_pagination_kb(prev_enabled=(idx > 0), next_enabled=(idx < len(pages) - 1))
+    for task in tasks:
+        task_id, category, title, date, is_done = task
+        status = "✅" if is_done == 1 else "❌"
+        output_text += f"{task_id}. [{category}] {title} — {date} {status}\n"
 
-    bot.edit_message_text(page_text, call.message.chat.id, call.message.message_id, reply_markup=kb)
+    output_text += "\nВведи номер задачи, которую нужно удалить."
+
+    state.set(HomeStates.input_delete_task_id)
+
+    bot.send_message(message.chat.id, output_text)
+
+
+@bot.message_handler(commands=["cancel"])
+def command_cancel_handler(message: types.Message, state: StateContext):
+    state.delete()
+
+    bot.send_message(
+        message.chat.id,
+        "Действие отменено.",
+        reply_markup=build_main_menu_keyboard()
+    )
+
+
+@bot.callback_query_handler(state=HomeStates.main_menu_buttons_press)
+def callback_main_menu_handler(call: types.CallbackQuery, state: StateContext):
     bot.answer_callback_query(call.id)
 
-@bot.message_handler(func=lambda m: True)
-def fallback(message: types.Message):
-    # если нет состояния — подсказка
-    st = bot.get_state(message.from_user.id, message.chat.id)
-    if st is None:
-        bot.send_message(message.chat.id, "Не понял. Используйте /start для начала.", reply_markup=main_keyboard())
-    else:
-        bot.send_message(message.chat.id, "Следуйте подсказкам или введите /start для отмены.")
+    if call.data == "button_add_task":
+        output_text = "Выбери категорию задачи:"
 
-# middleware и фильтры как в sample1
+        state.set(HomeStates.choose_category)
+
+        bot.send_message(
+            call.message.chat.id,
+            output_text,
+            reply_markup=build_categories_keyboard()
+        )
+
+    elif call.data == "button_show_tasks":
+        fake_message = call.message
+        fake_message.from_user = call.from_user
+        show_tasks(fake_message)
+
+    elif call.data == "button_done_task":
+        active_tasks = get_active_tasks(call.from_user.id)
+
+        if len(active_tasks) == 0:
+            bot.send_message(
+                call.message.chat.id,
+                "У тебя нет невыполненных задач ✅",
+                reply_markup=build_main_menu_keyboard()
+            )
+            return
+
+        output_text = "Невыполненные задачи:\n\n"
+
+        for task in active_tasks:
+            task_id, category, title, date = task
+            output_text += f"{task_id}. [{category}] {title} — {date}\n"
+
+        output_text += "\nВведи номер задачи, которую нужно отметить выполненной."
+
+        state.set(HomeStates.input_done_task_id)
+
+        bot.send_message(call.message.chat.id, output_text)
+
+    elif call.data == "button_delete_task":
+        tasks = get_tasks(call.from_user.id)
+
+        if len(tasks) == 0:
+            bot.send_message(
+                call.message.chat.id,
+                "У тебя пока нет задач для удаления.",
+                reply_markup=build_main_menu_keyboard()
+            )
+            return
+
+        output_text = "Твои задачи:\n\n"
+
+        for task in tasks:
+            task_id, category, title, date, is_done = task
+            status = "✅" if is_done == 1 else "❌"
+            output_text += f"{task_id}. [{category}] {title} — {date} {status}\n"
+
+        output_text += "\nВведи номер задачи, которую нужно удалить."
+
+        state.set(HomeStates.input_delete_task_id)
+
+        bot.send_message(call.message.chat.id, output_text)
+
+    elif call.data == "button_help":
+        output_text = (
+            "Я умею:\n"
+            "➕ добавлять домашние задачи\n"
+            "📋 показывать список задач\n"
+            "✅ отмечать задачи выполненными\n"
+            "🗑 удалять задачи"
+        )
+
+        bot.send_message(call.message.chat.id, output_text)
+
+
+@bot.callback_query_handler(state=HomeStates.choose_category)
+def callback_choose_category_handler(call: types.CallbackQuery, state: StateContext):
+    bot.answer_callback_query(call.id)
+
+    state.add_data(category=call.data)
+
+    output_text = "Напиши название задачи. Например: Полить фикус"
+
+    state.set(HomeStates.input_task_title)
+
+    bot.send_message(call.message.chat.id, output_text)
+
+
+@bot.message_handler(state=HomeStates.input_task_title)
+def message_input_task_title_handler(message: types.Message, state: StateContext):
+    title = message.text.strip()
+
+    if len(title) == 0:
+        bot.send_message(message.chat.id, "Ошибка. Название задачи не может быть пустым.")
+        return
+
+    if len(title) > 100:
+        bot.send_message(message.chat.id, "Ошибка. Название задачи слишком длинное.")
+        return
+
+    state.add_data(title=title)
+
+    output_text = (
+        "Когда нужно выполнить задачу?\n"
+        "Например: сегодня, завтра, каждый понедельник, каждые 3 дня."
+    )
+
+    state.set(HomeStates.input_task_date)
+
+    bot.send_message(message.chat.id, output_text)
+
+
+@bot.message_handler(state=HomeStates.input_task_date)
+def message_input_task_date_handler(message: types.Message, state: StateContext):
+    date = message.text.strip()
+
+    if len(date) == 0:
+        bot.send_message(message.chat.id, "Ошибка. Дата не может быть пустой.")
+        return
+
+    state.add_data(date=date)
+
+    with state.data() as data:
+        category = data["category"]
+        title = data["title"]
+        task_date = data["date"]
+
+    add_task(message.from_user.id, category, title, task_date)
+
+    state.delete()
+    state.set(HomeStates.main_menu_buttons_press)
+
+    bot.send_message(
+        message.chat.id,
+        "Задача добавлена ✅",
+        reply_markup=build_main_menu_keyboard()
+    )
+
+
+@bot.message_handler(state=HomeStates.input_done_task_id)
+def message_input_done_task_id_handler(message: types.Message, state: StateContext):
+    task_id_text = message.text.strip()
+
+    if task_id_text.isdigit() == False:
+        bot.send_message(
+            message.chat.id,
+            "Ошибка. Введи номер задачи цифрой или нажми /cancel."
+        )
+        return
+
+    task_id = int(task_id_text)
+    result = mark_task_done(message.from_user.id, task_id)
+
+    if result == False:
+        bot.send_message(
+            message.chat.id,
+            "Задача не найдена. Попробуй ещё раз или нажми /cancel."
+        )
+        return
+
+    state.delete()
+    state.set(HomeStates.main_menu_buttons_press)
+
+    bot.send_message(
+        message.chat.id,
+        "Задача отмечена как выполненная ✅",
+        reply_markup=build_main_menu_keyboard()
+    )
+
+
+@bot.message_handler(state=HomeStates.input_delete_task_id)
+def message_input_delete_task_id_handler(message: types.Message, state: StateContext):
+    task_id_text = message.text.strip()
+
+    if task_id_text.isdigit() == False:
+        bot.send_message(
+            message.chat.id,
+            "Ошибка. Введи номер задачи цифрой или нажми /cancel."
+        )
+        return
+
+    task_id = int(task_id_text)
+    result = delete_task(message.from_user.id, task_id)
+
+    if result == False:
+        bot.send_message(
+            message.chat.id,
+            "Задача не найдена. Попробуй ещё раз или нажми /cancel."
+        )
+        return
+
+    state.delete()
+    state.set(HomeStates.main_menu_buttons_press)
+
+    bot.send_message(
+        message.chat.id,
+        "Задача удалена 🗑",
+        reply_markup=build_main_menu_keyboard()
+    )
+
+
+@bot.message_handler()
+def message_unknown_handler(message: types.Message):
+    bot.send_message(
+        message.chat.id,
+        "Я не понял сообщение. Нажми /start, чтобы открыть главное меню."
+    )
+
+
+init_db()
+
 bot.add_custom_filter(custom_filters.StateFilter(bot))
 bot.setup_middleware(StateMiddleware(bot))
 
 bot.infinity_polling()
-# ...existing code...
-```# filepath: /Users/ildar/Desktop/pytonchik/ хакатон/chat_bot.py
-# ...existing code...
-import warnings
-from urllib3.exceptions import NotOpenSSLWarning
-warnings.filterwarnings("ignore", category=NotOpenSSLWarning)
-
-import telebot
-from telebot import custom_filters, types
-from telebot.states import State, StatesGroup
-from telebot.states.sync.context import StateContext
-from telebot.states.sync.middleware import StateMiddleware
-from telebot.storage import StateMemoryStorage
-
-# Токен (в реальном проекте хранить в переменной окружения)
-TOKEN = "8610851744:AAESwcQaW89k33kOMsiClZS6KJgKItSnP74"
-
-bot = telebot.TeleBot(
-    TOKEN,
-    state_storage=StateMemoryStorage(),
-    use_class_middlewares=True,
-)
-
-# --- Простое in-memory хранилище вместо sqlite ---
-USERS = set()   # множество user_id
-TASKS = []      # список записей: dict {user_id, task_name, task_time, task_type}
-
-def add_user(user_id: int):
-    USERS.add(user_id)
-
-def create_task(user_id: int, task_title: str, task_time: str, task_category: str):
-    TASKS.append({
-        "user_id": user_id,
-        "task_name": task_title,
-        "task_time": task_time,
-        "task_type": task_category,
-    })
-
-def get_user_tasks_list(user_id: int):
-    return [(t["task_name"], t["task_time"]) for t in TASKS if t["user_id"] == user_id]
-
-def get_all_users():
-    # вернуть всех известных пользователей (из USERS)
-    return list(USERS)
-
-# --- Стейты ---
-class AppStates(StatesGroup):
-    main_menu = State()
-    choose_time = State()
-    admin_password = State()
-    admin_pagination = State()
-
-# --- Клавиатуры ---
-def main_keyboard():
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=False)
-    kb.row("🌿 Растения", "🐾 Питомцы")
-    kb.row("🧹 Уборка", "🛒 Покупки")
-    kb.row("📊 Статистика", "📋 Мои задачи")
-    return kb
-
-def build_pagination_kb(prev_enabled: bool, next_enabled: bool):
-    kb = types.InlineKeyboardMarkup()
-    btns = []
-    if prev_enabled:
-        btns.append(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_prev"))
-    if next_enabled:
-        btns.append(types.InlineKeyboardButton("Вперёд ➡️", callback_data="admin_next"))
-    if btns:
-        kb.row(*btns)
-    return kb
-
-# --- Обработчики ---
-@bot.message_handler(commands=["start"])
-def cmd_start(message: types.Message, state: StateContext):
-    add_user(message.from_user.id)
-    # очистить state пользователя и установить main_menu
-    state.delete()
-    state.set(AppStates.main_menu)
-    bot.send_message(
-        message.chat.id,
-        "Добро пожаловать в Home Harmony! Выберите категорию:",
-        reply_markup=main_keyboard(),
-    )
-
-@bot.message_handler(func=lambda m: isinstance(m.text, str) and m.text in ["🌿 Растения", "🐾 Питомцы", "🧹 Уборка", "🛒 Покупки"], state=AppStates.main_menu)
-def category_chosen(message: types.Message, state: StateContext):
-    user_id = message.from_user.id
-    chat_id = message.chat.id
-    text = message.text
-    if text == "🌿 Растения":
-        task_title = "Полив растений"
-    elif text == "🐾 Питомцы":
-        task_title = "Кормление питомцев"
-    elif text == "🧹 Уборка":
-        task_title = "Уборка"
-    else:
-        task_title = "Список покупок"
-
-    # сохраняем выбор в state и просим время
-    state.add_data(task_title=task_title, task_category="общая")
-    state.set(AppStates.choose_time)
-    bot.send_message(chat_id, f"Вы выбрали задачу: {task_title}. Когда выполнить? (формат ЧЧ:ММ)")
-
-@bot.message_handler(state=AppStates.choose_time)
-def handle_time(message: types.Message, state: StateContext):
-    user_id = message.from_user.id
-    chat_id = message.chat.id
-    task_time = (message.text or "").strip()
-    if len(task_time) != 5 or task_time[2] != ":" or not task_time[:2].isdigit() or not task_time[3:].isdigit():
-        bot.send_message(chat_id, "Неверный формат времени. Введите в формате ЧЧ:ММ, например 08:30.")
-        return
-    hh = int(task_time[:2])
-    mm = int(task_time[3:])
-    if not (0 <= hh <= 23 and 0 <= mm <= 59):
-        bot.send_message(chat_id, "Неверное время. Введите корректное время ЧЧ:ММ.")
-        return
-
-    # получить временные данные и сохранить задачу
-    with state.data() as data:
-        task_title = data.get("task_title", "Задача")
-        task_category = data.get("task_category", "общая")
-
-    create_task(user_id, task_title, task_time, task_category)
-    state.delete()
-    bot.send_message(chat_id, f"Задача '{task_title}' добавлена на {task_time}.", reply_markup=main_keyboard())
-
-@bot.message_handler(func=lambda m: isinstance(m.text, str) and m.text == "📋 Мои задачи", state=AppStates.main_menu)
-def my_tasks(message: types.Message, state: StateContext):
-    user_id = message.from_user.id
-    chat_id = message.chat.id
-    tasks = get_user_tasks_list(user_id)
-    if not tasks:
-        bot.send_message(chat_id, "У вас пока нет задач.")
-        return
-    lines = [f"- {t[0]} в {t[1]}" for t in tasks]
-    bot.send_message(chat_id, "Ваши задачи:\n" + "\n".join(lines))
-
-@bot.message_handler(func=lambda m: isinstance(m.text, str) and m.text == "📊 Статистика", state=AppStates.main_menu)
-def stats_handler(message: types.Message, state: StateContext):
-    # админская команда: запрашиваем пароль
-    state.set(AppStates.admin_password)
-    bot.send_message(message.chat.id, "Введите пароль администратора для просмотра статистики:")
-
-@bot.message_handler(state=AppStates.admin_password)
-def check_admin_password(message: types.Message, state: StateContext):
-    pwd = (message.text or "").strip()
-    if pwd != "12345":
-        bot.send_message(message.chat.id, "Неверный пароль. Введите ещё раз или вернитесь в меню /start")
-        return
-
-    users = get_all_users()
-    if not users:
-        bot.send_message(message.chat.id, "Пользователей пока нет. Вернитесь в меню /start")
-        state.delete()
-        return
-
-    # формируем страницы простым способом из TASKS
-    lines = []
-    rows = sorted(TASKS, key=lambda r: r["user_id"])
-    for r in rows:
-        lines.append(f"user {r['user_id']} — {r['task_name']} @ {r['task_time']}")
-
-    # простая постраничка по 8 строк
-    page_size = 8
-    pages = [lines[i : i + page_size] for i in range(0, len(lines), page_size)]
-    if not pages:
-        bot.send_message(message.chat.id, "Записей нет.")
-        state.delete()
-        return
-
-    state.add_data(admin_pages=pages, admin_page_index=0)
-    state.set(AppStates.admin_pagination)
-
-    page_text = "\n".join(pages[0]) + "\n\nВернитесь в меню: /start"
-    kb = build_pagination_kb(prev_enabled=False, next_enabled=(len(pages) > 1))
-    bot.send_message(message.chat.id, page_text, reply_markup=kb)
-
-@bot.callback_query_handler(state=AppStates.admin_pagination)
-def admin_pagination_cb(call: types.CallbackQuery, state: StateContext):
-    if call.data not in ("admin_prev", "admin_next"):
-        bot.answer_callback_query(call.id)
-        return
-
-    with state.data() as data:
-        pages = data.get("admin_pages", [])
-        idx = data.get("admin_page_index", 0)
-
-    if not pages:
-        bot.answer_callback_query(call.id, "Список не найден.")
-        return
-
-    if call.data == "admin_prev" and idx > 0:
-        idx -= 1
-    if call.data == "admin_next" and idx < len(pages) - 1:
-        idx += 1
-
-    state.add_data(admin_page_index=idx)
-    page_text = "\n".join(pages[idx]) + "\n\nВернитесь в меню: /start"
-    kb = build_pagination_kb(prev_enabled=(idx > 0), next_enabled=(idx < len(pages) - 1))
-
-    bot.edit_message_text(page_text, call.message.chat.id, call.message.message_id, reply_markup=kb)
-    bot.answer_callback_query(call.id)
-
-@bot.message_handler(func=lambda m: True)
-def fallback(message: types.Message):
-    # если нет состояния — подсказка
-    st = bot.get_state(message.from_user.id, message.chat.id)
-    if st is None:
-        bot.send_message(message.chat.id, "Не понял. Используйте /start для начала.", reply_markup=main_keyboard())
-    else:
-        bot.send_message(message.chat.id, "Следуйте подсказкам или введите /start для отмены.")
-
-# middleware и фильтры как в sample1
-bot.add_custom_filter(custom_filters.StateFilter(bot))
-bot.setup_middleware(StateMiddleware(bot))
-
-bot.infinity_polling()
-# ...existing code...

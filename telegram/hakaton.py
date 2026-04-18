@@ -117,7 +117,7 @@ def message_text_team_title_handler(message: types.Message, state: StateContext)
         "Веб или мобильное приложение", callback_data="Веб или мобильное приложение"
     )
     button_complex_system_task = telebot.types.InlineKeyboardButton(
-        "Комплексная система", callback_data="Комплексная система"
+        "Комплексная /система", callback_data="Комплексная система"
     )
 
     inline_reply_keyboard.add(button_chat_bot_task)

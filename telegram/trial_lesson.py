@@ -6,7 +6,6 @@ from telebot.storage import StateMemoryStorage
 TOKEN = "8613202718:AAEcntvqJh0dphNRscv1oZLZNGT_XT3N9qY"
 bot = telebot.TeleBot(TOKEN, state_storage=StateMemoryStorage())
 
-records = {}
 
 class RegStates(StatesGroup):
     name = State()
@@ -33,6 +32,12 @@ def confirm_kb():
     kb.add(types.InlineKeyboardButton("Нет", callback_data="confirm:no"))
     return kb
 
+
+def _get_global_store():
+    with bot.retrieve_data(0, 0) as g:
+        if 'records' not in g:
+            g['records'] = {}
+        return g  
 @bot.message_handler(commands=["start"])
 def start_cmd(msg):
     bot.delete_state(msg.from_user.id, msg.chat.id)
@@ -42,7 +47,7 @@ def start_cmd(msg):
 def cb_register(call):
     uid, chat = call.from_user.id, call.message.chat.id
     bot.set_state(uid, RegStates.name, chat)
-    # clear any previous data
+    # clear any previous data for this user
     with bot.retrieve_data(uid, chat) as data:
         data.clear()
     bot.answer_callback_query(call.id)
@@ -51,12 +56,15 @@ def cb_register(call):
 @bot.callback_query_handler(func=lambda c: c.data == "show_all")
 def cb_show_all(call):
     bot.answer_callback_query(call.id)
-    if not records:
+    with bot.retrieve_data(0, 0) as g:
+        recs = g.get('records', {})
+    if not recs:
         bot.send_message(call.message.chat.id, "Записей пока нет.")
         return
     lines = []
-    for uid, d in records.items():
-        lines.append(f"{d['student_name']}, {d['student_age']} лет — {d['course_direction']} (user {uid})")
+    for uid_str, d in recs.items():
+        # uid_str может быть строкой
+        lines.append(f"{d.get('student_name')}, {d.get('student_age')} лет — {d.get('course_direction')} (user {uid_str})")
     bot.send_message(call.message.chat.id, "\n".join(lines))
 
 @bot.message_handler(state=RegStates.name)
@@ -107,8 +115,12 @@ def cb_confirm(call):
     ans = call.data.split(":", 1)[1]
     bot.answer_callback_query(call.id)
     if ans == "yes":
-        with bot.retrieve_data(uid, chat) as data:
-            records[uid] = dict(data)  # store a copy
+        # берем данные пользователя и сохраняем в глобальное state-хранилище
+        with bot.retrieve_data(uid, chat) as pdata:
+            user_data = dict(pdata)  # копируем
+        with bot.retrieve_data(0, 0) as g:
+            recs = g.setdefault('records', {})
+            recs[str(uid)] = user_data
         bot.send_message(chat, "Запись успешно сохранена. Для возврата в меню используйте /start")
     else:
         bot.send_message(chat, "Запись отменена. Для возврата в меню используйте /start")
@@ -130,3 +142,4 @@ def fallback(msg):
 
 if __name__ == "__main__":
     bot.infinity_polling()
+# ...existing code...
